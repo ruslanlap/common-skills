@@ -77,7 +77,7 @@ class ClaudeSessionTests(unittest.TestCase):
             root = Path(tmp)
             homes = {
                 name: root / f"{name}-home"
-                for name in ("codex", "pi", "grok", "zcode")
+                for name in ("codex", "pi", "grok", "zcode", "hermes")
             }
             for name, home in homes.items():
                 skill = home / "skills" / f"{name}-skill" / "SKILL.md"
@@ -92,6 +92,7 @@ class ClaudeSessionTests(unittest.TestCase):
                 pi_home=homes["pi"],
                 grok_home=homes["grok"],
                 zcode_home=homes["zcode"],
+                hermes_home=homes["hermes"],
             )
 
             self.assertTrue(
@@ -100,6 +101,7 @@ class ClaudeSessionTests(unittest.TestCase):
                     "pi-skill",
                     "grok-skill",
                     "zcode-skill",
+                    "hermes-skill",
                 }.issubset(skills)
             )
 

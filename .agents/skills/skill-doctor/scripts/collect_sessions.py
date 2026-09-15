@@ -135,7 +135,8 @@ def resolve_repos(repo_args):
 
 
 def discover_skills(repos, codex_home: Path, extra_dirs, include_global: bool,
-                    pi_home: Path = None, grok_home: Path = None, zcode_home: Path = None):
+                    pi_home: Path = None, grok_home: Path = None, zcode_home: Path = None,
+                    hermes_home: Path = None):
     if isinstance(repos, Path):
         repos = [repos]
     roots = []
@@ -151,7 +152,7 @@ def discover_skills(repos, codex_home: Path, extra_dirs, include_global: bool,
             Path.home() / ".agents" / "skills",
             Path.home() / ".claude" / "skills",
         ]
-        for home in (pi_home, grok_home, zcode_home):
+        for home in (pi_home, grok_home, zcode_home, hermes_home):
             if home is not None:
                 roots.append(Path(home) / "skills")
     roots += [Path(d).expanduser() for d in extra_dirs]
@@ -1504,6 +1505,7 @@ def main():
     pi_home = Path(args.pi_home).expanduser()
     grok_home = Path(args.grok_home).expanduser()
     zcode_home = Path(args.zcode_home).expanduser()
+    hermes_home = Path(args.hermes_home).expanduser()
     out_dir = Path(args.out).expanduser()
     transcripts_dir = out_dir / "transcripts"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
@@ -1517,6 +1519,7 @@ def main():
         pi_home=pi_home,
         grok_home=grok_home,
         zcode_home=zcode_home,
+        hermes_home=hermes_home,
     )
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
 
@@ -1737,7 +1740,7 @@ def main():
         sys.exit(1)
 
     requested_hermes = args.harness in ("auto", "all", "hermes")
-    hermes_databases = discover_hermes_databases(args.hermes_home)
+    hermes_databases = discover_hermes_databases(hermes_home)
     if requested_hermes and hermes_databases:
         hermes_records, hermes_scanned = find_hermes_sessions(hermes_databases, cutoff)
         sources["hermes"] = {
@@ -1791,6 +1794,7 @@ def main():
             pi_home=pi_home,
             grok_home=grok_home,
             zcode_home=zcode_home,
+            hermes_home=hermes_home,
         )
     installed_skill_names = set(skills)
     for session in sessions:
