@@ -745,11 +745,13 @@ def parse_hermes_session(connection, session_row, skill_names, include_subagents
         tool_calls_raw = row["tool_calls"]
         content = row["content"] or ""
         if role == "user" and content.strip():
+            if looks_injected(content):
+                continue
             stats["user_turns"] += 1
             entries.append(("user", truncate(content, MAX_MSG_CHARS)))
         elif role == "assistant":
             stats["assistant_turns"] += 1
-            if content.strip():
+            if content.strip() and not looks_injected(content):
                 skills_used |= detect_skill_candidates(content) & set(skill_names)
                 entries.append(("assistant", truncate(content, MAX_MSG_CHARS)))
             if tool_calls_raw:
@@ -812,6 +814,14 @@ def find_hermes_sessions(databases, cutoff):
                 continue
             columns = sqlite_table_columns(connection, "sessions")
             if "cwd" not in columns:
+                continue
+            message_columns = sqlite_table_columns(connection, "messages")
+            required_message_columns = {"session_id", "role", "content", "tool_calls", "timestamp"}
+            if not required_message_columns.issubset(message_columns):
+                print(
+                    f"warning: skipping Hermes database {database}: incompatible messages schema",
+                    file=sys.stderr,
+                )
                 continue
             rows = connection.execute(
                 """

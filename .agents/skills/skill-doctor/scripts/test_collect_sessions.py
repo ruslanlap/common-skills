@@ -646,6 +646,34 @@ class HermesCollectorTests(unittest.TestCase):
             self.assertEqual(stats["error_outputs"], 1)
             self.assertEqual(skills_used, ["my-skill"])
 
+    def test_parse_hermes_session_skips_injected_user_content(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._make_db(Path(tmp))
+            base = 1_800_000_000.0
+            conn.execute(
+                "INSERT INTO sessions VALUES ('s-inj','cli','/tmp/repo',NULL,NULL,NULL,?,?,?)",
+                (base, base + 60, base + 60),
+            )
+            conn.execute(
+                "INSERT INTO messages VALUES ('s-inj','user','<environment_context injected>',NULL,?)",
+                (base,),
+            )
+            conn.execute(
+                "INSERT INTO messages VALUES ('s-inj','assistant','ok',?,?)",
+                (json.dumps([{"function": {"name": "terminal", "arguments": "ls"}}]), base + 1),
+            )
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM sessions WHERE id='s-inj'").fetchone()
+
+            parsed = parse_hermes_session(conn, row, set(), False)
+
+            self.assertIsNotNone(parsed)
+            _, stats, entries, _ = parsed
+            self.assertEqual(stats["user_turns"], 0)
+            self.assertFalse(any(role == "user" for role, _ in entries))
+
     def test_parse_hermes_session_skips_subagents(self):
         import sqlite3
 
@@ -685,6 +713,37 @@ class HermesCollectorTests(unittest.TestCase):
 
             self.assertEqual(scanned, 1)
             self.assertEqual([row["id"] for _, row in records], ["new"])
+
+    def test_find_hermes_sessions_skips_incompatible_messages_schema(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "state.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                """CREATE TABLE sessions (
+                    id TEXT, source TEXT, cwd TEXT, title TEXT, display_name TEXT,
+                    parent_session_id TEXT, started_at REAL, last_activity_at REAL, ended_at REAL)"""
+            )
+            conn.execute(
+                """CREATE TABLE messages (
+                    session_id TEXT, role TEXT, content TEXT, timestamp REAL)"""
+            )
+            ts = datetime.now(tz=timezone.utc).timestamp()
+            conn.execute(
+                "INSERT INTO sessions VALUES ('bad','cli','/tmp',NULL,NULL,NULL,?,?,?)",
+                (ts, ts, ts),
+            )
+            conn.commit()
+            conn.close()
+
+            records, scanned = find_hermes_sessions(
+                [db_path], datetime.fromtimestamp(ts - 60, tz=timezone.utc)
+            )
+
+            self.assertEqual(records, [])
+            self.assertEqual(scanned, 0)
 
     def test_parse_hermes_session_counts_repeated_calls_by_name_and_args(self):
         import sqlite3
