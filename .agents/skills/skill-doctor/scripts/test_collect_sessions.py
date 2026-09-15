@@ -701,10 +701,14 @@ class HermesCollectorTests(unittest.TestCase):
             root = Path(tmp)
             conn = self._make_db(root)
             old, new = 1_000_000_000.0, datetime.now(tz=timezone.utc).timestamp()
-            for sid, ts in (("old", old), ("new", new)):
+            for sid, started_at, last_activity_at, ended_at in (
+                ("old", old, old, old),
+                ("recent", new - 30, new - 30, new - 30),
+                ("completed", old, None, new),
+            ):
                 conn.execute(
                     "INSERT INTO sessions VALUES (?,?,?,?,?,NULL,?,?,?)",
-                    (sid, "cli", "/tmp", None, None, ts, ts, ts),
+                    (sid, "cli", "/tmp", None, None, started_at, last_activity_at, ended_at),
                 )
             conn.commit()
             conn.close()
@@ -713,8 +717,8 @@ class HermesCollectorTests(unittest.TestCase):
                 [root / "state.db"], datetime.fromtimestamp(new - 60, tz=timezone.utc)
             )
 
-            self.assertEqual(scanned, 1)
-            self.assertEqual([row["id"] for _, row in records], ["new"])
+            self.assertEqual(scanned, 2)
+            self.assertEqual([row["id"] for _, row in records], ["completed", "recent"])
 
     def test_find_hermes_sessions_skips_incompatible_messages_schema(self):
         import sqlite3

@@ -69,8 +69,7 @@ def parse_args():
     )
     p.add_argument(
         "--hermes-home",
-        default=os.environ.get("HERMES_HOME", "~"),
-        help="Hermes Agent home containing state.db (default: HERMES_HOME or ~)",
+        help="Hermes Agent home containing state.db (default: HERMES_HOME, ~/.hermes, then ~)",
     )
     p.add_argument(
         "--warp-db",
@@ -664,14 +663,14 @@ def find_warp_conversations(databases, cutoff):
 
 def discover_hermes_databases(explicit_path=None):
     """Find Hermes Agent ``state.db`` files (HERMES_HOME, ~/.hermes, ~)."""
-    roots = []
     if explicit_path:
-        roots.append(Path(explicit_path).expanduser())
-    env_home = os.environ.get("HERMES_HOME")
-    if env_home:
-        roots.append(Path(env_home).expanduser())
-    roots.append(Path.home() / ".hermes")
-    roots.append(Path.home())
+        roots = [Path(explicit_path).expanduser()]
+    else:
+        roots = []
+        env_home = os.environ.get("HERMES_HOME")
+        if env_home:
+            roots.append(Path(env_home).expanduser())
+        roots.extend((Path.home() / ".hermes", Path.home()))
     seen = set()
     databases = []
     for root in roots:
@@ -829,8 +828,8 @@ def find_hermes_sessions(databases, cutoff):
                 SELECT id, source, cwd, title, display_name, parent_session_id,
                        started_at, last_activity_at, ended_at
                 FROM sessions
-                WHERE COALESCE(last_activity_at, started_at, ended_at) >= ?
-                ORDER BY COALESCE(last_activity_at, started_at, ended_at) DESC
+                WHERE COALESCE(last_activity_at, ended_at, started_at) >= ?
+                ORDER BY COALESCE(last_activity_at, ended_at, started_at) DESC
                 """,
                 (cutoff_epoch,),
             ).fetchall()
@@ -845,7 +844,7 @@ def find_hermes_sessions(databases, cutoff):
             records.append((database, row))
     records.sort(
         key=lambda pair: parse_epoch_timestamp(
-            pair[1]["last_activity_at"] or pair[1]["started_at"] or pair[1]["ended_at"]
+            pair[1]["last_activity_at"] or pair[1]["ended_at"] or pair[1]["started_at"]
         ) or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )
@@ -1505,7 +1504,7 @@ def main():
     pi_home = Path(args.pi_home).expanduser()
     grok_home = Path(args.grok_home).expanduser()
     zcode_home = Path(args.zcode_home).expanduser()
-    hermes_home = Path(args.hermes_home).expanduser()
+    hermes_home = Path(args.hermes_home).expanduser() if args.hermes_home else None
     out_dir = Path(args.out).expanduser()
     transcripts_dir = out_dir / "transcripts"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
