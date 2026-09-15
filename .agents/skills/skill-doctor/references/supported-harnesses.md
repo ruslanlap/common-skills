@@ -36,7 +36,7 @@ Harness-specific source overrides:
 - `--pi-home PATH` — nonstandard Pi agent home (default `~/.pi/agent`).
 - `--grok-home PATH` — nonstandard Grok Build home (default `~/.grok`).
 - `--zcode-home PATH` — nonstandard ZCode home (default `~/.zcode`).
-- `--hermes-home PATH` — Hermes Agent home containing `state.db` (default: `HERMES_HOME` env or `~`).
+- `--hermes-home PATH` — Hermes Agent home containing `state.db` (default discovery checks `HERMES_HOME`, `~/.hermes`, then `~`).
 
 ## Skill locations
 
