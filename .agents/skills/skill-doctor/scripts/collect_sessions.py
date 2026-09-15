@@ -674,11 +674,14 @@ def discover_hermes_databases(explicit_path=None):
     seen = set()
     databases = []
     for root in roots:
-        candidate = root / "state.db"
-        key = str(candidate)
-        if key in seen or not candidate.is_file():
+        try:
+            resolved_root = root.resolve()
+        except OSError:
             continue
-        seen.add(key)
+        candidate = resolved_root / "state.db"
+        if candidate in seen or not candidate.is_file():
+            continue
+        seen.add(candidate)
         databases.append(candidate)
     return databases
 
@@ -764,7 +767,8 @@ def parse_hermes_session(connection, session_row, skill_names, include_subagents
                     used_tool_names.add(tool)
                     if tool in CODE_EDIT_HINTS or tool in GENERIC_EDIT_TOOLS:
                         has_code_edit_hint = True
-                    seen_calls[tool] = seen_calls.get(tool, 0) + 1
+                    call_key = hashlib.sha1((tool + args).encode()).hexdigest()
+                    seen_calls[call_key] = seen_calls.get(call_key, 0) + 1
                     for name in detect_skill_candidates(args) & set(skill_names):
                         skills_used.add(name)
                     if tool == "skill_view":
@@ -1723,7 +1727,7 @@ def main():
         sys.exit(1)
 
     requested_hermes = args.harness in ("auto", "all", "hermes")
-    hermes_databases = discover_hermes_databases(args.hermes_home if args.harness == "hermes" else None)
+    hermes_databases = discover_hermes_databases(args.hermes_home)
     if requested_hermes and hermes_databases:
         hermes_records, hermes_scanned = find_hermes_sessions(hermes_databases, cutoff)
         sources["hermes"] = {

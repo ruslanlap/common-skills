@@ -11,6 +11,7 @@ from pathlib import Path
 from collect_sessions import (
     detect_skills_from_entries,
     discover_skills,
+    discover_hermes_databases,
     find_claude_session_files,
     find_grok_session_files,
     find_hermes_sessions,
@@ -684,6 +685,50 @@ class HermesCollectorTests(unittest.TestCase):
 
             self.assertEqual(scanned, 1)
             self.assertEqual([row["id"] for _, row in records], ["new"])
+
+    def test_parse_hermes_session_counts_repeated_calls_by_name_and_args(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._make_db(Path(tmp))
+            base = 1_800_000_000.0
+            conn.execute(
+                "INSERT INTO sessions VALUES ('s3','cli','/tmp/repo',NULL,NULL,NULL,?,?,?)",
+                (base, base + 60, base + 60),
+            )
+            tool_calls = json.dumps([
+                {"function": {"name": "terminal", "arguments": "ls"}},
+                {"function": {"name": "terminal", "arguments": "pwd"}},
+                {"function": {"name": "terminal", "arguments": "ls"}},
+            ])
+            conn.execute(
+                "INSERT INTO messages VALUES ('s3','assistant','ok',?,?)", (tool_calls, base + 1)
+            )
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM sessions WHERE id='s3'").fetchone()
+
+            parsed = parse_hermes_session(conn, row, set(), False)
+
+            self.assertIsNotNone(parsed)
+            _, stats, _, _ = parsed
+            self.assertEqual(stats["tool_calls"], 3)
+            self.assertEqual(stats["repeated_tool_calls"], 1)
+
+    def test_discover_hermes_databases_resolves_relative_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / "hermes-home"
+            hermes_home.mkdir()
+            (hermes_home / "state.db").write_text("sqlite")
+
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(root)
+                discovered = discover_hermes_databases("hermes-home")
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(discovered[0], (hermes_home / "state.db").resolve())
 
 
 if __name__ == "__main__":
