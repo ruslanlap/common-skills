@@ -784,6 +784,33 @@ class HermesCollectorTests(unittest.TestCase):
             self.assertEqual(stats["tool_calls"], 3)
             self.assertEqual(stats["repeated_tool_calls"], 1)
 
+    def test_parse_hermes_session_handles_non_string_tool_args(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._make_db(Path(tmp))
+            base = 1_800_000_000.0
+            conn.execute(
+                "INSERT INTO sessions VALUES ('s4','cli','/tmp/repo',NULL,NULL,NULL,?,?,?)",
+                (base, base + 60, base + 60),
+            )
+            tool_calls = json.dumps([
+                {"function": {"name": "skill_view", "arguments": {"name": "my-skill"}}},
+            ])
+            conn.execute(
+                "INSERT INTO messages VALUES ('s4','assistant','ok',?,?)", (tool_calls, base + 1)
+            )
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM sessions WHERE id='s4'").fetchone()
+
+            parsed = parse_hermes_session(conn, row, {"my-skill"}, False)
+
+            self.assertIsNotNone(parsed)
+            _, stats, entries, skills_used = parsed
+            self.assertEqual(stats["tool_calls"], 1)
+            self.assertIn(("tool", 'skill_view {"name": "my-skill"}'), entries)
+            self.assertEqual(skills_used, ["my-skill"])
+
     def test_discover_hermes_databases_resolves_relative_home(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

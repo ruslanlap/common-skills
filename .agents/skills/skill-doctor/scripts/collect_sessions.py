@@ -797,6 +797,8 @@ def parse_hermes_session(connection, session_row, skill_names, include_subagents
                     fn = tc.get("function", {}) if isinstance(tc, dict) else {}
                     tool = fn.get("name") or ""
                     args = fn.get("arguments") or ""
+                    if not isinstance(args, str):
+                        args = json.dumps(args)
                     if not tool:
                         continue
                     stats["tool_calls"] += 1
@@ -1912,7 +1914,7 @@ def main():
         "pi_home": str(pi_home) if "pi" in sources else None,
         "grok_home": str(grok_home) if "grok" in sources else None,
         "zcode_home": str(zcode_home) if "zcode" in sources else None,
-        "hermes_home": str(args.hermes_home) if "hermes" in sources else None,
+        "hermes_home": str(hermes_home) if "hermes" in sources else None,
         "warp_databases": [str(path) for path in warp_databases],
         "conversation_scope": conversation_scope,
         "repo": str(repos[0]) if len(repos) == 1 else None,
