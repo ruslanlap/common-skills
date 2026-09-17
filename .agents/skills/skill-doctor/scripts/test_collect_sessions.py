@@ -10,8 +10,8 @@ from pathlib import Path
 
 from collect_sessions import (
     detect_skills_from_entries,
-    discover_skills,
     discover_hermes_databases,
+    discover_skills,
     find_claude_session_files,
     find_grok_session_files,
     find_hermes_sessions,
@@ -22,6 +22,7 @@ from collect_sessions import (
     parse_hermes_session,
     parse_pi_session,
     parse_zcode_session,
+    resolve_hermes_home,
     session_matches_repos,
 )
 
@@ -642,10 +643,14 @@ class HermesCollectorTests(unittest.TestCase):
             self.assertIsNotNone(parsed)
             meta, stats, entries, skills_used = parsed
             self.assertEqual(meta["id"], "s1")
+            self.assertEqual(meta["started_at"], datetime.fromtimestamp(base, tz=timezone.utc).isoformat())
+            self.assertEqual(meta["timestamp"], datetime.fromtimestamp(base + 2, tz=timezone.utc).isoformat())
             self.assertEqual(stats["user_turns"], 1)
             self.assertEqual(stats["assistant_turns"], 1)
             self.assertEqual(stats["tool_calls"], 2)
             self.assertEqual(stats["error_outputs"], 1)
+            self.assertEqual(stats["first_ts"], datetime.fromtimestamp(base, tz=timezone.utc).isoformat())
+            self.assertEqual(stats["last_ts"], datetime.fromtimestamp(base + 2, tz=timezone.utc).isoformat())
             self.assertEqual(skills_used, ["my-skill"])
 
     def test_parse_hermes_session_skips_injected_user_content(self):
@@ -794,6 +799,31 @@ class HermesCollectorTests(unittest.TestCase):
                 os.chdir(old_cwd)
 
             self.assertEqual(discovered[0], (hermes_home / "state.db").resolve())
+
+    def test_resolve_hermes_home_prefers_dot_hermes_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            dot_hermes = home / ".hermes"
+            dot_hermes.mkdir()
+            (dot_hermes / "state.db").write_text("sqlite")
+
+            old_home = os.environ.get("HOME")
+            old_hermes_home = os.environ.get("HERMES_HOME")
+            try:
+                os.environ["HOME"] = str(home)
+                os.environ.pop("HERMES_HOME", None)
+                resolved = resolve_hermes_home(None)
+            finally:
+                if old_home is None:
+                    os.environ.pop("HOME", None)
+                else:
+                    os.environ["HOME"] = old_home
+                if old_hermes_home is None:
+                    os.environ.pop("HERMES_HOME", None)
+                else:
+                    os.environ["HERMES_HOME"] = old_hermes_home
+
+            self.assertEqual(resolved, dot_hermes.resolve())
 
 
 if __name__ == "__main__":

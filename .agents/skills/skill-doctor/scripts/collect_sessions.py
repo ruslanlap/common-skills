@@ -69,6 +69,7 @@ def parse_args():
     )
     p.add_argument(
         "--hermes-home",
+        default=None,
         help="Hermes Agent home containing state.db (default: HERMES_HOME, ~/.hermes, then ~)",
     )
     p.add_argument(
@@ -94,7 +95,7 @@ def parse_args():
         help="score conversations from every project represented in local history",
     )
     p.add_argument("--include-global-skills", action="store_true",
-                   help="also discover skills outside the repo (~/.codex/skills, ~/.agents/skills, ~/.claude/skills, ~/.pi/agent/skills, ~/.grok/skills, ~/.zcode/skills)")
+                   help="also discover skills outside the repo (~/.codex/skills, ~/.agents/skills, ~/.claude/skills, ~/.pi/agent/skills, ~/.grok/skills, ~/.zcode/skills, Hermes home/skills)")
     p.add_argument("--days", type=int, default=45, help="only consider sessions modified in the last N days")
     p.add_argument("--max-sessions", type=int, default=12, help="max sessions to sample for scoring")
     p.add_argument("--per-skill", type=int, default=3, help="max sampled sessions per skill")
@@ -661,6 +662,39 @@ def find_warp_conversations(databases, cutoff):
     return records, scanned
 
 
+def resolve_hermes_home(explicit_path=None):
+    """Resolve the Hermes home used for global skill discovery.
+
+    Preference order matches database discovery: explicit path, HERMES_HOME,
+    ~/.hermes, then ~/.
+    """
+    roots = []
+    if explicit_path:
+        roots.append(Path(explicit_path).expanduser())
+    env_home = os.environ.get("HERMES_HOME")
+    if env_home:
+        roots.append(Path(env_home).expanduser())
+    roots.append(Path.home() / ".hermes")
+    roots.append(Path.home())
+
+    resolved_roots = []
+    seen = set()
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        resolved_roots.append(resolved)
+
+    for root in resolved_roots:
+        if (root / "state.db").is_file():
+            return root
+    return resolved_roots[0] if resolved_roots else Path.home().resolve()
+
+
 def discover_hermes_databases(explicit_path=None):
     """Find Hermes Agent ``state.db`` files (HERMES_HOME, ~/.hermes, ~)."""
     if explicit_path:
@@ -795,7 +829,23 @@ def parse_hermes_session(connection, session_row, skill_names, include_subagents
         if count > 1:
             stats["repeated_tool_calls"] += count - 1
 
-    meta["timestamp"] = (last_ts or first_ts or datetime.now(tz=timezone.utc)).isoformat()
+    session_started_at = parse_epoch_timestamp(session_row["started_at"])
+    first_seen = first_ts or session_started_at
+    latest_seen = (
+        last_ts
+        or parse_epoch_timestamp(session_row["last_activity_at"])
+        or parse_epoch_timestamp(session_row["ended_at"])
+        or first_seen
+    )
+
+    if first_seen is not None:
+        meta["started_at"] = first_seen.isoformat()
+    if latest_seen is not None:
+        meta["timestamp"] = latest_seen.isoformat()
+    else:
+        meta["timestamp"] = datetime.now(tz=timezone.utc).isoformat()
+    stats["first_ts"] = first_seen.isoformat() if first_seen is not None else None
+    stats["last_ts"] = latest_seen.isoformat() if latest_seen is not None else None
     stats["has_code_edits"] = has_code_edit_hint
     stats["skills"] = sorted(skills_used & set(skill_names))
     return meta, stats, entries.finish(), sorted(skills_used & set(skill_names))
@@ -1504,7 +1554,7 @@ def main():
     pi_home = Path(args.pi_home).expanduser()
     grok_home = Path(args.grok_home).expanduser()
     zcode_home = Path(args.zcode_home).expanduser()
-    hermes_home = Path(args.hermes_home).expanduser() if args.hermes_home else None
+    hermes_home = resolve_hermes_home(args.hermes_home)
     out_dir = Path(args.out).expanduser()
     transcripts_dir = out_dir / "transcripts"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
