@@ -808,7 +808,34 @@ class HermesCollectorTests(unittest.TestCase):
             self.assertIsNotNone(parsed)
             _, stats, entries, skills_used = parsed
             self.assertEqual(stats["tool_calls"], 1)
-            self.assertIn(("tool", 'skill_view {"name": "my-skill"}'), entries)
+            self.assertIn(("tool:skill_view", '{"name": "my-skill"}'), entries)
+            self.assertEqual(skills_used, ["my-skill"])
+
+    def test_parse_hermes_session_reads_top_level_tool_call_shape(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = self._make_db(Path(tmp))
+            base = 1_800_000_000.0
+            conn.execute(
+                "INSERT INTO sessions VALUES ('s5','cli','/tmp/repo',NULL,NULL,NULL,?,?,?)",
+                (base, base + 60, base + 60),
+            )
+            tool_calls = json.dumps([
+                {"name": "skill_view", "arguments": '{"name":"my-skill"}'},
+            ])
+            conn.execute(
+                "INSERT INTO messages VALUES ('s5','assistant','ok',?,?)", (tool_calls, base + 1)
+            )
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT * FROM sessions WHERE id='s5'").fetchone()
+
+            parsed = parse_hermes_session(conn, row, {"my-skill"}, False)
+
+            self.assertIsNotNone(parsed)
+            _, stats, entries, skills_used = parsed
+            self.assertEqual(stats["tool_calls"], 1)
+            self.assertIn(("tool:skill_view", '{"name":"my-skill"}'), entries)
             self.assertEqual(skills_used, ["my-skill"])
 
     def test_discover_hermes_databases_resolves_relative_home(self):
@@ -826,6 +853,32 @@ class HermesCollectorTests(unittest.TestCase):
                 os.chdir(old_cwd)
 
             self.assertEqual(discovered[0], (hermes_home / "state.db").resolve())
+
+    def test_discover_hermes_databases_explicit_path_is_authoritative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            env_home = home / "env-hermes"
+            env_home.mkdir()
+            (env_home / "state.db").write_text("sqlite")
+            bad_path = home / "does-not-exist"
+
+            old_home = os.environ.get("HOME")
+            old_hermes_home = os.environ.get("HERMES_HOME")
+            try:
+                os.environ["HOME"] = str(home)
+                os.environ["HERMES_HOME"] = str(env_home)
+                discovered = discover_hermes_databases(str(bad_path))
+            finally:
+                if old_home is None:
+                    os.environ.pop("HOME", None)
+                else:
+                    os.environ["HOME"] = old_home
+                if old_hermes_home is None:
+                    os.environ.pop("HERMES_HOME", None)
+                else:
+                    os.environ["HERMES_HOME"] = old_hermes_home
+
+            self.assertEqual(discovered, [])
 
     def test_resolve_hermes_home_prefers_dot_hermes_when_present(self):
         with tempfile.TemporaryDirectory() as tmp:

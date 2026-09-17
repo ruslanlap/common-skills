@@ -793,31 +793,24 @@ def parse_hermes_session(connection, session_row, skill_names, include_subagents
                     parsed_calls = json.loads(tool_calls_raw)
                 except ValueError:
                     parsed_calls = []
-                for tc in parsed_calls:
-                    fn = tc.get("function", {}) if isinstance(tc, dict) else {}
-                    tool = fn.get("name") or ""
-                    args = fn.get("arguments") or ""
-                    if not isinstance(args, str):
-                        args = json.dumps(args)
-                    if not tool:
-                        continue
+                for tool, args_text in assistant_tool_calls({"tool_calls": parsed_calls}):
                     stats["tool_calls"] += 1
                     used_tool_names.add(tool)
                     if tool in CODE_EDIT_HINTS or tool in GENERIC_EDIT_TOOLS:
                         has_code_edit_hint = True
-                    call_key = hashlib.sha1((tool + args).encode()).hexdigest()
+                    call_key = hashlib.sha1((tool + args_text).encode()).hexdigest()
                     seen_calls[call_key] = seen_calls.get(call_key, 0) + 1
-                    for name in detect_skill_candidates(args) & set(skill_names):
+                    for name in detect_skill_candidates(args_text) & set(skill_names):
                         skills_used.add(name)
                     if tool == "skill_view":
                         try:
-                            payload = json.loads(args) if isinstance(args, str) else args
+                            payload = json.loads(args_text)
                             name = (payload or {}).get("name")
                             if name in skill_names:
                                 skills_used.add(name)
                         except (ValueError, TypeError):
                             pass
-                    entries.append(("tool", f"{tool} {truncate(args, MAX_TOOL_CHARS)}"))
+                    entries.append((f"tool:{tool}", truncate(args_text, MAX_TOOL_CHARS)))
         elif role == "tool" and content.strip():
             lowered = content[:200].lower()
             if "error" in lowered or "traceback" in lowered:
@@ -1791,7 +1784,7 @@ def main():
         sys.exit(1)
 
     requested_hermes = args.harness in ("auto", "all", "hermes")
-    hermes_databases = discover_hermes_databases(hermes_home)
+    hermes_databases = discover_hermes_databases(args.hermes_home)
     if requested_hermes and hermes_databases:
         hermes_records, hermes_scanned = find_hermes_sessions(hermes_databases, cutoff)
         sources["hermes"] = {
